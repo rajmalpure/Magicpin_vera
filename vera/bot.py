@@ -154,8 +154,8 @@ async def healthz():
 async def metadata():
     """Bot identity metadata."""
     return {
-        "team_name": "Let's Build",
-        "team_members": ["Rajesh"],
+        "team_name": "Vera- by Raj",
+        "team_members": ["Raj Malpure"],
         "model": f"{composer.llm_provider}/llama-3.3-70b-versatile",
         "approach": (
             "Trigger-kind routed prompt composer with verifiable-fact injection, "
