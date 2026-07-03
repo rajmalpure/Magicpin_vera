@@ -12,6 +12,7 @@ bot.py — Vera HTTP server for the magicpin AI Challenge
 import os
 import sys
 import json
+import time
 import logging
 import asyncio
 from pathlib import Path
