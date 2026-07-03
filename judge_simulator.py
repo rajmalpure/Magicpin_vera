@@ -25,14 +25,14 @@ import os
 # Your bot's URL (where your bot is running)
 BOT_URL = "http://localhost:8080"
 
-# Choose your LLM provider: "openai", "anthropic", "gemini", "deepseek", "groq", "ollama", "openrouter"
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq")
+# Choose your LLM provider: "openai", "anthropic", "gemini", "deepseek", "groq", "ollama", "openrouter", "mock"
+LLM_PROVIDER = "groq"
 
 # Your API key (paste your key here)
-LLM_API_KEY = os.environ.get("GROQ_API_KEY", os.environ.get("LLM_API_KEY", ""))  # <-- PUT YOUR API KEY HERE
+LLM_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # Model to use (leave empty for default, or specify like "gpt-4o", "claude-3-5-sonnet-20241022", etc.)
-LLM_MODEL = os.environ.get("LLM_MODEL", "llama-3.1-8b-instant")  # Defaults to 8B to avoid 429 daily rate limits on 70B
+LLM_MODEL = "llama-3.1-8b-instant"
 
 # For Ollama only: local server URL
 OLLAMA_URL = "http://localhost:11434"
@@ -268,16 +268,25 @@ class GroqProvider(LLMProvider):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        req = urlrequest.Request(
-            "https://api.groq.com/openai/v1/chat/completions",
-            data=json.dumps({"model": self.model, "messages": messages,
-                            "temperature": 0.2, "max_tokens": 1500}).encode("utf-8"),
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-        )
-        resp = urlrequest.urlopen(req, timeout=TIMEOUT_LLM)
-        data = json.loads(resp.read().decode("utf-8"))
-        return data["choices"][0]["message"]["content"]
-
+        import time
+        max_retries = 8
+        base_delay = 10
+        for attempt in range(max_retries):
+            try:
+                req = urlrequest.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    data=json.dumps({"model": self.model, "messages": messages,
+                                    "temperature": 0.2, "max_tokens": 1500}).encode("utf-8"),
+                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+                )
+                resp = urlrequest.urlopen(req, timeout=TIMEOUT_LLM)
+                data = json.loads(resp.read().decode("utf-8"))
+                return data["choices"][0]["message"]["content"]
+            except urlerror.HTTPError as e:
+                if e.code == 429 and attempt < max_retries - 1:
+                    time.sleep(base_delay * (2 ** attempt))
+                else:
+                    raise
 
 class OllamaProvider(LLMProvider):
     def __init__(self, model: str = "", api_url: str = ""):
@@ -422,8 +431,8 @@ class BotClient:
             "payload": payload, "delivered_at": datetime.utcnow().isoformat() + "Z"
         })
 
-    def tick(self, triggers):
-        return self._request("POST", "/v1/tick", 60, {
+    def tick(self, triggers: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Optional[str], int]:
+        return self._request("POST", "/v1/tick", 180, {
             "now": datetime.utcnow().isoformat() + "Z", "available_triggers": triggers
         })
 

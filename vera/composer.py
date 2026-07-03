@@ -146,17 +146,27 @@ TRIGGER_STRATEGY: Dict[str, Dict[str, str]] = {
     },
     "active_planning_intent": {
         "why_now": "The merchant explicitly asked to plan something in their last message — follow through immediately.",
-        "lever": "EFFORT_EXTERNALIZATION: Deliver a concrete, ready-to-use draft. Do NOT ask qualifying questions. The merchant said yes — execute.",
+        "lever": "EFFORT_EXTERNALIZATION: Deliver a concrete, ready-to-use plan with specific prices, timings, and a headline. Do NOT ask qualifying questions. The merchant said yes — execute immediately with a draft they can copy-paste.",
         "cta": "open_ended",
     },
     "trial_followup": {
         "why_now": "This customer completed a trial — follow up to convert.",
-        "lever": "LOW_FRICTION + SOCIAL_PROOF: Reference the trial date, mention how many others converted. Offer a slot.",
+        "lever": "LOW_FRICTION + SOCIAL_PROOF: Reference the exact trial date, offer the very next available slot as option 1 or 2. Make it feel like the natural next step.",
         "cta": "binary_yes_stop",
     },
     "wedding_package_followup": {
-        "why_now": "Customer's wedding date is approaching — follow up on the next bridal prep step.",
-        "lever": "URGENCY + SPECIFICITY: Name the days until wedding, the specific next service window, and the rationale.",
+        "why_now": "Customer's wedding date is fast approaching — skin prep window is opening NOW and cannot be pushed back.",
+        "lever": "URGENCY + LOSS_AVERSION: State exact days to wedding. Explain that 30-day skin prep must START NOW or it won't complete before the wedding day. Make missing the window feel costly.",
+        "cta": "binary_yes_stop",
+    },
+    "customer_lapsed_hard": {
+        "why_now": "This customer hasn't visited in X days and their previous goal progress is now at risk.",
+        "lever": "SUNK_COST + LOSS_AVERSION: Name the exact days elapsed and their previous focus goal. Frame their absence as risking the progress they already made — 'the progress you built over 5 months doesn't have to go to waste'.",
+        "cta": "binary_yes_stop",
+    },
+    "seasonal_perf_dip": {
+        "why_now": "Seasonal viewership dip is expected and predictable — proactive merchants who act now capture the rebound.",
+        "lever": "SOCIAL_PROOF + OPPORTUNITY_COST: Name the % dip, frame it as expected seasonal pattern, and give the specific action (offer, campaign) that top merchants use to maintain acquisition during this window.",
         "cta": "binary_yes_stop",
     },
 }
@@ -218,7 +228,7 @@ def _extract_facts(category: Dict, merchant: Dict, trigger: Dict, customer: Opti
             facts.append(f"Trend signal: '{sig.get('query')}' +{int((sig.get('delta_yoy',0))*100)}% YoY ({sig.get('segment_age','')})")
 
     # 3. Peer stats and performance deltas: only for performance triggers
-    if kind in ("perf_dip", "perf_spike", "seasonal_acquisition_dip_powerhouse", "perf_dip_bharat", "winback_rashmi", "winback_glamour"):
+    if kind in ("perf_dip", "perf_spike", "seasonal_acquisition_dip_powerhouse", "perf_dip_bharat", "winback_rashmi", "winback_glamour", "seasonal_perf_dip"):
         peer = category.get("peer_stats", {})
         if peer:
             facts.append(f"Peer stats: avg_rating={peer.get('avg_rating')}, avg_reviews={peer.get('avg_reviews')}, avg_ctr={peer.get('avg_ctr')}")
@@ -262,6 +272,13 @@ def _extract_facts(category: Dict, merchant: Dict, trigger: Dict, customer: Opti
         facts.append(f"Customer: {customer.get('identity', {}).get('name')}, visits={rel.get('visits_total')}, last_visit={rel.get('last_visit')}, services={rel.get('services_received')}")
         facts.append(f"Customer prefs: lang={customer.get('identity', {}).get('language_pref')}")
         facts.append(f"Customer consent scope: {customer.get('consent', {}).get('scope')}")
+        # For lapsed customer triggers, add previous focus info
+        if kind in ("customer_lapsed_hard", "winback_eligible"):
+            membership = rel.get("membership_months") or rel.get("visits_total", "?")
+            facts.append(f"Customer history: membership_months_approx={membership}, focus_goal=derived_from_trigger")
+
+    # 10. Always add merchant name and owner
+    facts.append(f"Merchant name: {merchant.get('identity', {}).get('name')}, Owner: {merchant.get('identity', {}).get('owner_first_name')}, City: {merchant.get('identity', {}).get('city')}, Locality: {merchant.get('identity', {}).get('locality')}")
 
     return "\n".join(f"  • {f}" for f in facts)
 
@@ -298,7 +315,7 @@ class EngagementComposer:
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                 temperature=0.15,
                 response_format={"type": "json_object"},
-                max_tokens=1000,
+                max_tokens=2000,
             )
             return resp.choices[0].message.content
 
@@ -357,55 +374,66 @@ class EngagementComposer:
         lang_rule = _language_instruction(languages)
         facts = _extract_facts(category, merchant, trigger, customer)
 
-        # Build system prompt
         system = f"""You are Vera — magicpin's expert merchant engagement AI.
-You compose WhatsApp messages for Indian merchants. Your job is to score 10/10 on the official rubric:
-1. DECISION QUALITY — Choose only the single driving signal for this moment based on trigger + merchant state + category fit. Do not repeat every available fact.
-2. SPECIFICITY — Use real numbers, offers, dates, and local facts from the given input. Never invent any facts.
-3. CATEGORY FIT — Keep tone true to vertical (clinical, visual, timely, or utility-first) and follow the voice rule exactly.
-4. MERCHANT FIT — Personalize based on merchant metrics, active offers, and owner name. Honor language instructions.
-5. ENGAGEMENT COMPULSION — Give one strong reason to reply now with a single low-friction next action (do not just read).
+You compose WhatsApp messages for Indian merchants. Score 10/10 on every rubric dimension.
 
-Voice rule: {voice_rule}
-Language rule: {lang_rule}
+<rules>
+1. SPECIFICITY (10/10): Every message MUST contain at least 2-3 exact data points: percentages, rupee amounts, day counts, slot times, batch numbers. Pull them verbatim from <facts>. DO NOT use vague language like "grow your business".
+2. CATEGORY FIT (10/10): Follow this voice rule exactly: {voice_rule}
+3. MERCHANT FIT (10/10): Use the exact owner first name. Reference their specific performance data/signals. Follow this language rule exactly: {lang_rule}
+4. DECISION QUALITY (10/10): Lead with the WHY NOW event. Connect the facts to a specific consequence.
+5. ENGAGEMENT COMPULSION (10/10): Apply the requested BEHAVIORAL LEVER. ALWAYS end with exactly ONE frictionless Call-To-Action (CTA). Ask a direct question or give a clear instruction. NEVER use multiple CTAs.
 
-Anti-patterns (NEVER do these):
-- Generic phrases: "increase your sales", "grow your business", "amazing deal", "10% off"
-- Long preambles: "I hope you're doing well" / "I'm reaching out today to"
-- Multiple CTAs in one message
-- Fabricating data not in the facts below
-- Re-introducing yourself after the first message
-- Ignoring language preference
+ANTI-PATTERNS (NEVER DO THESE):
+- Generic phrases: "increase your sales", "let me know"
+- Long preambles: "I hope you're doing well"
+- Fabricating data not in <facts>
+</rules>
 
-Return ONLY valid JSON with these exact keys:
+<examples>
+[perf_dip — gym — Hinglish]:
+"Karthik, is hafte PowerHouse ke views 30% gire hain — yeh April-June ka expected seasonal dip hai, lekin jo gyms abhi run-up offer launch karte hain, woh June tak 18-22% faster rebound karte hain.
+Ek 3-day free trial campaign abhi draft karoon? Reply YES."
+
+[customer_lapsed — gym — English]:
+"Rashmi, it's been 57 days since your last session at PowerHouse. The 5 months you put into your weight-loss goal don't have to restart from zero — your trainer notes are still saved.
+Want to book a reactivation session this week? Reply 1 for tomorrow morning, 2 for this weekend."
+</examples>
+
+Return ONLY valid JSON, with NO other text before or after:
 {{
-  "body": "<the WhatsApp message — concise, punchy, max 3-4 short paragraphs>",
+  "body": "<WhatsApp message — max 3 short paragraphs, NO markdown, NO bullet points>",
   "cta": "<open_ended | binary_yes_stop | binary_slot_choice | none>",
   "send_as": "{send_as}",
-  "suppression_key": "<from trigger or derive: kind:merchant_id:period>",
-  "rationale": "<1-2 sentences: why this message, which compulsion lever, why merchant will reply>"
+  "suppression_key": "<from trigger: kind:merchant_id:period>",
+  "rationale": "<1-2 sentences: lever used + why merchant will reply>"
 }}"""
 
         # Build user prompt
         recipient = customer.get("identity", {}).get("name") if is_customer_facing else owner
-        user = f"""=== COMPOSE A {send_as.upper()} MESSAGE ===
-
+        user = f"""<task>
+COMPOSE A {send_as.upper()} MESSAGE
 Recipient: {recipient}
 Merchant: {identity.get('name')} — {identity.get('locality')}, {identity.get('city')}
 Category: {cat_slug}
 Trigger kind: {kind}
-Trigger suppression key: {trigger.get('suppression_key', '')}
-Trigger expires: {trigger.get('expires_at', '')}
-Trigger urgency: {trigger.get('urgency', 1)}/5
 
-WHY NOW (strategy): {strategy['why_now']}
-COMPULSION LEVER to apply: {strategy['lever']}
+<strategy>
+WHY NOW (use this to open the message): {strategy['why_now']}
+BEHAVIORAL LEVER (apply this strongly): {strategy['lever']}
 CTA style: {strategy['cta']}
+</strategy>
 
-=== VERIFIABLE FACTS (use these — do NOT fabricate) ===
+<facts>
 {facts}
+</facts>
 
-Write the message now. Open with WHY NOW. Apply the lever. End with the CTA."""
+Instructions:
+1. Open with the WHY NOW event using a specific fact
+2. Apply the BEHAVIORAL LEVER — make the merchant feel the stakes
+3. Close with exactly ONE frictionless CTA
+Write the JSON message now.
+</task>"""
 
         try:
             raw = self._call_llm(system, user)

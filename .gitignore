@@ -117,3 +117,9 @@ desktop.ini
 # Task logs
 *.log
 .system_generated/
+
+.env
+venv/
+__pycache__/
+*.pyc
+.DS_Store
