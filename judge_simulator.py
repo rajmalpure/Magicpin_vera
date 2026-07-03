@@ -423,12 +423,12 @@ class BotClient:
         })
 
     def tick(self, triggers):
-        return self._request("POST", "/v1/tick", 30, {
+        return self._request("POST", "/v1/tick", 60, {
             "now": datetime.utcnow().isoformat() + "Z", "available_triggers": triggers
         })
 
     def reply(self, conv_id, merchant_id, message, turn):
-        return self._request("POST", "/v1/reply", 30, {
+        return self._request("POST", "/v1/reply", 60, {
             "conversation_id": conv_id, "merchant_id": merchant_id, "customer_id": None,
             "from_role": "merchant", "message": message,
             "received_at": datetime.utcnow().isoformat() + "Z", "turn_number": turn
@@ -844,10 +844,11 @@ class JudgeSimulator:
 
         score = self.scorer.score(action, category, merchant, trigger, customer)
         self.all_scores.append(score)
-        time.sleep(2.0)  # Groq rate limit cooldown
+        time.sleep(3.5)  # Groq rate limit cooldown
 
         body = action.get("body", "")[:50]
-        print(f"\n{Colors.CYAN}Message:{Colors.RESET} \"{body}...\"")
+        safe_body = body.encode("ascii", errors="replace").decode("ascii")
+        print(f"\n{Colors.CYAN}Message:{Colors.RESET} \"{safe_body}...\"")
 
         print_score_bar("Specificity", score.specificity)
         if verbose and score.specificity_reason:

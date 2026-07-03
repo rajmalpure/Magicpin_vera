@@ -287,7 +287,7 @@ async def tick(body: TickBody, force: bool = False):
             res = await process_trigger(trg_id)
             if res is not None:
                 # Add a small delay between requests to let the Groq rate limits cool down
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1.5)
             return res
 
     trigger_batch = body.available_triggers[:20]
