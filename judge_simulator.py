@@ -21,6 +21,9 @@ Author: magicpin AI Challenge Team
 # =============================================================================
 
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Your bot's URL (where your bot is running)
 BOT_URL = "http://localhost:8080"

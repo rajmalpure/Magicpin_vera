@@ -10,16 +10,22 @@ bot.py — Vera HTTP server for the magicpin AI Challenge
 """
 
 import os
+import sys
 import json
-import time
 import logging
 import asyncio
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from typing import Dict, Any, Optional
+
+from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
 
 from composer import EngagementComposer
 
